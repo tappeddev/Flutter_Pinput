@@ -6,8 +6,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:smart_auth/smart_auth.dart';
-import 'package:universal_platform/universal_platform.dart';
 
 part 'pinput_state.dart';
 
@@ -65,10 +63,7 @@ class Pinput extends StatefulWidget {
     this.preFilledWidget,
     this.separatorBuilder,
     this.pinItemBuilder,
-    this.smsCodeMatcher = PinputConstants.defaultSmsCodeMatcher,
     this.senderPhoneNumber,
-    this.androidSmsAutofillMethod = AndroidSmsAutofillMethod.none,
-    this.listenForMultipleSmsOnAndroid = false,
     this.mainAxisAlignment = MainAxisAlignment.center,
     this.crossAxisAlignment = CrossAxisAlignment.start,
     this.pinContentAlignment = Alignment.center,
@@ -144,24 +139,6 @@ class Pinput extends StatefulWidget {
 
   /// Displayed fields count. PIN code length.
   final int length;
-
-  /// By default Android autofill is Disabled, you cane enable it by using any of options listed below
-  ///
-  /// First option is [AndroidSmsAutofillMethod.smsRetrieverApi] it automatically reads sms without user interaction
-  /// More about Sms Retriever API https://developers.google.com/identity/sms-retriever/overview?hl=en
-  ///
-  /// Second option requires user interaction to confirm reading a SMS, See readme for more details
-  /// [AndroidSmsAutofillMethod.smsUserConsentApi]
-  /// More about SMS User Consent API https://developers.google.com/identity/sms-retriever/user-consent/overview
-  final AndroidSmsAutofillMethod androidSmsAutofillMethod;
-
-  /// If true [androidSmsAutofillMethod] is not [AndroidSmsAutofillMethod.none]
-  /// Pinput will listen multiple sms codes, helpful if user request another sms code
-  final bool listenForMultipleSmsOnAndroid;
-
-  /// Used to extract code from SMS for Android Autofill if [androidSmsAutofillMethod] is enabled
-  /// By default it is [PinputConstants.defaultSmsCodeMatcher]
-  final String smsCodeMatcher;
 
   /// Fires when user completes pin input
   final ValueChanged<String>? onCompleted;

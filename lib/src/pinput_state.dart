@@ -33,7 +33,6 @@ class _PinputState extends State<Pinput>
   FocusNode? _focusNode;
   bool _isHovering = false;
   String? _validatorErrorText;
-  SmartAuth? _smartAuth;
 
   String? get _errorText => widget.errorText ?? _validatorErrorText;
 
@@ -84,48 +83,9 @@ class _PinputState extends State<Pinput>
       widget.controller!.addListener(_handleTextEditingControllerChanges);
     }
     effectiveFocusNode.canRequestFocus = isEnabled && widget.useNativeKeyboard;
-    _maybeInitSmartAuth();
     _maybeCheckClipboard();
     // https://github.com/Tkko/Flutter_Pinput/issues/89
     _ambiguate(WidgetsBinding.instance)!.addObserver(this);
-  }
-
-  /// Android Autofill
-  void _maybeInitSmartAuth() async {
-    final isAndroid = UniversalPlatform.isAndroid;
-    final isAutofillEnabled =
-        widget.androidSmsAutofillMethod != AndroidSmsAutofillMethod.none;
-
-    if (isAndroid && isAutofillEnabled) {
-      _smartAuth = SmartAuth();
-      _maybePrintAppSignature();
-      _listenForSmsCode();
-    }
-  }
-
-  void _maybePrintAppSignature() async {
-    if (widget.androidSmsAutofillMethod ==
-        AndroidSmsAutofillMethod.smsRetrieverApi) {
-      final res = await _smartAuth!.getAppSignature();
-      debugPrint('Pinput: App Signature for SMS Retriever API Is: $res');
-    }
-  }
-
-  void _listenForSmsCode() async {
-    final useUserConsentApi = widget.androidSmsAutofillMethod ==
-        AndroidSmsAutofillMethod.smsUserConsentApi;
-    final res = await _smartAuth!.getSmsCode(
-      useUserConsentApi: useUserConsentApi,
-      matcher: widget.smsCodeMatcher,
-      senderPhoneNumber: widget.senderPhoneNumber,
-    );
-    if (res.succeed && res.codeFound && res.code!.length == widget.length) {
-      _effectiveController.setText(res.code!);
-    }
-    // Listen for multiple sms codes
-    if (widget.listenForMultipleSmsOnAndroid) {
-      _listenForSmsCode();
-    }
   }
 
   void _handleTextEditingControllerChanges() {
@@ -212,7 +172,6 @@ class _PinputState extends State<Pinput>
     widget.controller?.removeListener(_handleTextEditingControllerChanges);
     _focusNode?.dispose();
     _controller?.dispose();
-    _smartAuth?.removeSmsListener();
     // https://github.com/Tkko/Flutter_Pinput/issues/89
     _ambiguate(WidgetsBinding.instance)!.removeObserver(this);
     super.dispose();
@@ -481,7 +440,8 @@ class _PinputState extends State<Pinput>
         separatorBuilder: widget.separatorBuilder,
         mainAxisAlignment: widget.mainAxisAlignment,
         children: Iterable<int>.generate(widget.length).map<Widget>((index) {
-          return _PinItem(state: this, index: index, builder: widget.pinItemBuilder);
+          return _PinItem(
+              state: this, index: index, builder: widget.pinItemBuilder);
         }).toList(),
       );
     }

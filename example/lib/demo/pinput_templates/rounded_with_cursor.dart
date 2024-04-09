@@ -6,8 +6,7 @@ class RoundedWithCustomCursor extends StatefulWidget {
   const RoundedWithCustomCursor({Key? key}) : super(key: key);
 
   @override
-  _RoundedWithCustomCursorState createState() =>
-      _RoundedWithCustomCursorState();
+  _RoundedWithCustomCursorState createState() => _RoundedWithCustomCursorState();
 
   @override
   String toStringShort() => 'Rounded With Cursor';
@@ -54,9 +53,6 @@ class _RoundedWithCustomCursorState extends State<RoundedWithCustomCursor> {
             child: Pinput(
               controller: pinController,
               focusNode: focusNode,
-              androidSmsAutofillMethod:
-                  AndroidSmsAutofillMethod.smsUserConsentApi,
-              listenForMultipleSmsOnAndroid: true,
               defaultPinTheme: defaultPinTheme,
               validator: (value) {
                 return value == '2222' ? null : 'Pin is incorrect';
