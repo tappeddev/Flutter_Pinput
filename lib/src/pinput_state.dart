@@ -1,13 +1,22 @@
 part of 'pinput.dart';
 
+/// This allows a value of type T or T?
+/// to be treated as a value of type T?.
+///
+/// We use this so that APIs that have become
+/// non-nullable can still be used with `!` and `?`
+/// to support older versions of the API as well.
+T? _ambiguate<T>(T? value) => value;
+
 class _PinputState extends State<Pinput>
-    with RestorationMixin
+    with RestorationMixin, WidgetsBindingObserver, _PinputUtilsMixin
     implements TextSelectionGestureDetectorBuilderDelegate, AutofillClient {
   @override
   late bool forcePressEnabled;
 
   @override
-  final GlobalKey<EditableTextState> editableTextKey = GlobalKey<EditableTextState>();
+  final GlobalKey<EditableTextState> editableTextKey =
+      GlobalKey<EditableTextState>();
 
   @override
   bool get selectionEnabled => widget.toolbarEnabled;
@@ -27,14 +36,26 @@ class _PinputState extends State<Pinput>
 
   String? get _errorText => widget.errorText ?? _validatorErrorText;
 
-  TextEditingController get _effectiveController => widget.controller ?? _controller!.value;
+  bool get _canRequestFocus {
+    final NavigationMode mode = MediaQuery.maybeOf(context)?.navigationMode ??
+        NavigationMode.traditional;
+    switch (mode) {
+      case NavigationMode.traditional:
+        return isEnabled && widget.useNativeKeyboard;
+      case NavigationMode.directional:
+        return true && widget.useNativeKeyboard;
+    }
+  }
 
-  //TODO cancle when created
-  @protected
-  FocusNode get effectiveFocusNode => widget.focusNode ?? (_focusNode ??= FocusNode());
+  TextEditingController get _effectiveController =>
+      widget.controller ?? _controller!.value;
 
   @protected
-  bool get hasError => _validatorErrorText != null;
+  FocusNode get effectiveFocusNode =>
+      widget.focusNode ?? (_focusNode ??= FocusNode());
+
+  @protected
+  bool get hasError => widget.forceErrorState || _validatorErrorText != null;
 
   @protected
   bool get isEnabled => widget.enabled;
@@ -52,7 +73,8 @@ class _PinputState extends State<Pinput>
   @override
   void initState() {
     super.initState();
-    _gestureDetectorBuilder = _PinputSelectionGestureDetectorBuilder(state: this);
+    _gestureDetectorBuilder =
+        _PinputSelectionGestureDetectorBuilder(state: this);
     if (widget.controller == null) {
       _createLocalController();
       _recentControllerValue = TextEditingValue.empty;
@@ -60,11 +82,15 @@ class _PinputState extends State<Pinput>
       _recentControllerValue = _effectiveController.value;
       widget.controller!.addListener(_handleTextEditingControllerChanges);
     }
-    effectiveFocusNode.canRequestFocus = isEnabled;
+    effectiveFocusNode.canRequestFocus = isEnabled && widget.useNativeKeyboard;
+    _maybeCheckClipboard();
+    // https://github.com/Tkko/Flutter_Pinput/issues/89
+    _ambiguate(WidgetsBinding.instance)!.addObserver(this);
   }
 
   void _handleTextEditingControllerChanges() {
-    final textChanged = _recentControllerValue.text != _effectiveController.value.text;
+    final textChanged =
+        _recentControllerValue.text != _effectiveController.value.text;
     _recentControllerValue = _effectiveController.value;
     if (textChanged) {
       _onChanged(pin);
@@ -76,6 +102,7 @@ class _PinputState extends State<Pinput>
     if (_completed) {
       widget.onCompleted?.call(pin);
       _maybeValidateForm();
+      _maybeCloseKeyboard();
     }
   }
 
@@ -83,6 +110,18 @@ class _PinputState extends State<Pinput>
     if (widget.pinputAutovalidateMode == PinputAutovalidateMode.onSubmit) {
       _validator();
     }
+  }
+
+  void _maybeCloseKeyboard() {
+    if (widget.closeKeyboardWhenCompleted) {
+      effectiveFocusNode.unfocus();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    effectiveFocusNode.canRequestFocus = _canRequestFocus;
   }
 
   @override
@@ -101,6 +140,8 @@ class _PinputState extends State<Pinput>
       oldWidget.controller?.removeListener(_handleTextEditingControllerChanges);
       widget.controller?.addListener(_handleTextEditingControllerChanges);
     }
+
+    effectiveFocusNode.canRequestFocus = _canRequestFocus;
   }
 
   @override
@@ -117,7 +158,9 @@ class _PinputState extends State<Pinput>
 
   void _createLocalController([TextEditingValue? value]) {
     assert(_controller == null);
-    _controller = value == null ? RestorableTextEditingController() : RestorableTextEditingController.fromValue(value);
+    _controller = value == null
+        ? RestorableTextEditingController()
+        : RestorableTextEditingController.fromValue(value);
     _controller!.addListener(_handleTextEditingControllerChanges);
     if (!restorePending) {
       _registerController();
@@ -129,6 +172,8 @@ class _PinputState extends State<Pinput>
     widget.controller?.removeListener(_handleTextEditingControllerChanges);
     _focusNode?.dispose();
     _controller?.dispose();
+    // https://github.com/Tkko/Flutter_Pinput/issues/89
+    _ambiguate(WidgetsBinding.instance)!.removeObserver(this);
     super.dispose();
   }
 
@@ -142,7 +187,8 @@ class _PinputState extends State<Pinput>
     TextSelection selection,
     SelectionChangedCause? cause,
   ) {
-    _effectiveController.selection = TextSelection.collapsed(offset: pin.length);
+    _effectiveController.selection =
+        TextSelection.collapsed(offset: pin.length);
 
     switch (Theme.of(context).platform) {
       case TargetPlatform.iOS:
@@ -151,7 +197,8 @@ class _PinputState extends State<Pinput>
       case TargetPlatform.windows:
       case TargetPlatform.fuchsia:
       case TargetPlatform.android:
-        if (cause == SelectionChangedCause.longPress || cause == SelectionChangedCause.drag) {
+        if (cause == SelectionChangedCause.longPress ||
+            cause == SelectionChangedCause.drag) {
           _editableText?.bringIntoView(selection.extent);
         }
         break;
@@ -185,6 +232,22 @@ class _PinputState extends State<Pinput>
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState appLifecycleState) async {
+    if (appLifecycleState == AppLifecycleState.resumed) {
+      _maybeCheckClipboard();
+    }
+  }
+
+  void _maybeCheckClipboard() async {
+    if (widget.onClipboardFound != null) {
+      final clipboard = await _getClipboardOrEmpty();
+      if (clipboard.length == widget.length) {
+        widget.onClipboardFound!.call(clipboard);
+      }
+    }
+  }
+
   String? _validator([String? _]) {
     final res = widget.validator?.call(pin);
     setState(() => _validatorErrorText = res);
@@ -215,7 +278,8 @@ class _PinputState extends State<Pinput>
         forcePressEnabled = false;
         textSelectionControls ??= cupertinoDesktopTextSelectionHandleControls;
         handleDidGainAccessibilityFocus = () {
-          if (!effectiveFocusNode.hasFocus && effectiveFocusNode.canRequestFocus) {
+          if (!effectiveFocusNode.hasFocus &&
+              effectiveFocusNode.canRequestFocus) {
             effectiveFocusNode.requestFocus();
           }
         };
@@ -233,7 +297,8 @@ class _PinputState extends State<Pinput>
         forcePressEnabled = false;
         textSelectionControls ??= desktopTextSelectionHandleControls;
         handleDidGainAccessibilityFocus = () {
-          if (!effectiveFocusNode.hasFocus && effectiveFocusNode.canRequestFocus) {
+          if (!effectiveFocusNode.hasFocus &&
+              effectiveFocusNode.canRequestFocus) {
             effectiveFocusNode.requestFocus();
           }
         };
@@ -251,7 +316,7 @@ class _PinputState extends State<Pinput>
           onExit: (PointerExitEvent event) => _handleHover(false),
           child: TextFieldTapRegion(
             child: IgnorePointer(
-              ignoring: !isEnabled,
+              ignoring: !isEnabled || !widget.useNativeKeyboard,
               child: AnimatedBuilder(
                 animation: _effectiveController,
                 builder: (_, Widget? child) => Semantics(
@@ -300,6 +365,7 @@ class _PinputState extends State<Pinput>
           style: PinputConstants._hiddenTextStyle,
           onChanged: (value) {
             field.didChange(value);
+            _maybeUseHaptic(widget.hapticFeedbackType);
           },
           expands: false,
           showCursor: false,
@@ -308,7 +374,7 @@ class _PinputState extends State<Pinput>
           showSelectionHandles: false,
           rendererIgnoresPointer: true,
           enableInteractiveSelection: false,
-          enableIMEPersonalizedLearning: true,
+          enableIMEPersonalizedLearning: widget.enableIMEPersonalizedLearning,
           textInputAction: widget.textInputAction,
           textCapitalization: widget.textCapitalization,
           selectionColor: Colors.transparent,
@@ -333,21 +399,24 @@ class _PinputState extends State<Pinput>
           selectionWidthStyle: BoxWidthStyle.tight,
           backgroundCursorColor: Colors.transparent,
           selectionHeightStyle: BoxHeightStyle.tight,
-          enableSuggestions: false,
+          enableSuggestions: widget.enableSuggestions,
           contextMenuBuilder: widget.contextMenuBuilder,
           obscuringCharacter: widget.obscuringCharacter,
           onAppPrivateCommand: widget.onAppPrivateCommand,
           onSelectionChanged: _handleSelectionChanged,
           onSelectionHandleTapped: _handleSelectionHandleTapped,
-          readOnly: widget.readOnly || !isEnabled,
-          selectionControls: widget.toolbarEnabled ? textSelectionControls : null,
-          keyboardAppearance: widget.keyboardAppearance ?? Theme.of(context).brightness,
+          readOnly: widget.readOnly || !isEnabled || !widget.useNativeKeyboard,
+          selectionControls:
+              widget.toolbarEnabled ? textSelectionControls : null,
+          keyboardAppearance:
+              widget.keyboardAppearance ?? Theme.of(context).brightness,
         ),
       ),
     );
   }
 
-  MouseCursor get _effectiveMouseCursor => MaterialStateProperty.resolveAs<MouseCursor>(
+  MouseCursor get _effectiveMouseCursor =>
+      MaterialStateProperty.resolveAs<MouseCursor>(
         widget.mouseCursor ?? MaterialStateMouseCursor.textable,
         <MaterialState>{
           if (!isEnabled) MaterialState.disabled,
@@ -359,7 +428,8 @@ class _PinputState extends State<Pinput>
 
   void _semanticsOnTap() {
     if (!_effectiveController.selection.isValid) {
-      _effectiveController.selection = TextSelection.collapsed(offset: _effectiveController.text.length);
+      _effectiveController.selection =
+          TextSelection.collapsed(offset: _effectiveController.text.length);
     }
     _requestKeyboard();
   }
@@ -370,7 +440,8 @@ class _PinputState extends State<Pinput>
         separatorBuilder: widget.separatorBuilder,
         mainAxisAlignment: widget.mainAxisAlignment,
         children: Iterable<int>.generate(widget.length).map<Widget>((index) {
-          return _PinItem(state: this, index: index, builder: widget.pinItemBuilder);
+          return _PinItem(
+              state: this, index: index, builder: widget.pinItemBuilder);
         }).toList(),
       );
     }
@@ -381,7 +452,8 @@ class _PinputState extends State<Pinput>
           <Listenable>[effectiveFocusNode, _effectiveController],
         ),
         builder: (BuildContext context, Widget? child) {
-          final shouldHideErrorContent = widget.validator == null && widget.errorText == null;
+          final shouldHideErrorContent =
+              widget.validator == null && widget.errorText == null;
 
           if (shouldHideErrorContent) return onlyFields();
 
@@ -404,11 +476,16 @@ class _PinputState extends State<Pinput>
   @protected
   bool get hasFocus {
     final isLastPin = selectedIndex == widget.length;
-    return effectiveFocusNode.hasFocus || !isLastPin;
+    return effectiveFocusNode.hasFocus ||
+        (!widget.useNativeKeyboard && !isLastPin);
   }
 
   @protected
-  bool get showErrorState => hasError;
+  bool get showErrorState {
+    return hasError &&
+        ((!hasFocus || (hasFocus && widget.showErrorWhenFocused)) ||
+            widget.forceErrorState);
+  }
 
   Widget _buildError() {
     if (showErrorState) {
@@ -422,7 +499,9 @@ class _PinputState extends State<Pinput>
           padding: const EdgeInsetsDirectional.only(start: 4, top: 8),
           child: Text(
             _errorText!,
-            style: widget.errorTextStyle ?? theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.error),
+            style: widget.errorTextStyle ??
+                theme.textTheme.titleMedium
+                    ?.copyWith(color: theme.colorScheme.error),
           ),
         );
       }
@@ -433,11 +512,13 @@ class _PinputState extends State<Pinput>
 
   // AutofillClient implementation start.
   @override
-  void autofill(TextEditingValue newEditingValue) => _editableText!.autofill(newEditingValue);
+  void autofill(TextEditingValue newEditingValue) =>
+      _editableText!.autofill(newEditingValue);
 
   @override
   TextInputConfiguration get textInputConfiguration {
-    final List<String>? autofillHints = widget.autofillHints?.toList(growable: false);
+    final List<String>? autofillHints =
+        widget.autofillHints?.toList(growable: false);
     final AutofillConfiguration autofillConfiguration = autofillHints != null
         ? AutofillConfiguration(
             uniqueIdentifier: autofillId,
@@ -447,6 +528,7 @@ class _PinputState extends State<Pinput>
           )
         : AutofillConfiguration.disabled;
 
-    return _editableText!.textInputConfiguration.copyWith(autofillConfiguration: autofillConfiguration);
+    return _editableText!.textInputConfiguration
+        .copyWith(autofillConfiguration: autofillConfiguration);
   }
 }

@@ -7,6 +7,9 @@ class PinputConstants {
   /// The default value [Pinput.animationDuration]
   static const _animationDuration = Duration(milliseconds: 180);
 
+  /// The default value [Pinput.length]
+  static const _defaultLength = 4;
+
   static const _defaultSeparator = SizedBox(width: 8);
 
   /// The hidden text under the Pinput

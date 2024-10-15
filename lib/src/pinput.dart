@@ -17,7 +17,11 @@ part 'widgets/widgets.dart';
 
 part 'models/pin_theme.dart';
 
+part 'utils/extensions.dart';
+
 part 'widgets/_pin_item.dart';
+
+part 'utils/pinput_utils_mixin.dart';
 
 part 'widgets/_pinput_selection_gesture_detector_builder.dart';
 
@@ -42,7 +46,7 @@ part 'widgets/_pinput_selection_gesture_detector_builder.dart';
 class Pinput extends StatefulWidget {
   /// Creates a PinPut widget
   const Pinput({
-    required this.length,
+    this.length = PinputConstants._defaultLength,
     this.defaultPinTheme,
     this.focusedPinTheme,
     this.submittedPinTheme,
@@ -56,8 +60,10 @@ class Pinput extends StatefulWidget {
     this.onLongPress,
     this.controller,
     this.focusNode,
+    this.preFilledWidget,
     this.separatorBuilder,
     this.pinItemBuilder,
+    this.senderPhoneNumber,
     this.mainAxisAlignment = MainAxisAlignment.center,
     this.crossAxisAlignment = CrossAxisAlignment.start,
     this.pinContentAlignment = Alignment.center,
@@ -66,12 +72,21 @@ class Pinput extends StatefulWidget {
     this.pinAnimationType = PinAnimationType.scale,
     this.enabled = true,
     this.readOnly = false,
+    this.useNativeKeyboard = true,
     this.toolbarEnabled = true,
     this.autofocus = false,
     this.obscureText = false,
+    this.showCursor = true,
+    this.showErrorWhenFocused = false,
+    this.isCursorAnimationEnabled = true,
+    this.enableIMEPersonalizedLearning = false,
+    this.enableSuggestions = true,
+    this.hapticFeedbackType = HapticFeedbackType.disabled,
+    this.closeKeyboardWhenCompleted = true,
     this.keyboardType = TextInputType.number,
     this.textCapitalization = TextCapitalization.none,
     this.slideTransitionBeginOffset,
+    this.cursor,
     this.keyboardAppearance,
     this.inputFormatters = const [],
     this.textInputAction,
@@ -80,8 +95,10 @@ class Pinput extends StatefulWidget {
     this.obscuringWidget,
     this.selectionControls,
     this.restorationId,
+    this.onClipboardFound,
     this.onAppPrivateCommand,
     this.mouseCursor,
+    this.forceErrorState = false,
     this.errorText,
     this.validator,
     this.errorBuilder,
@@ -116,6 +133,9 @@ class Pinput extends StatefulWidget {
 
   /// Theme of the pin in error state
   final PinTheme? errorPinTheme;
+
+  /// If true keyboard will be closed
+  final bool closeKeyboardWhenCompleted;
 
   /// Displayed fields count. PIN code length.
   final int length;
@@ -160,6 +180,9 @@ class Pinput extends StatefulWidget {
   /// ```
   final FocusNode? focusNode;
 
+  /// Widget that is displayed before field submitted.
+  final Widget? preFilledWidget;
+
   /// Builds a [Pinput] separator
   /// If null SizedBox(width: 8) will be used
   final JustIndexedWidgetBuilder? separatorBuilder;
@@ -200,8 +223,30 @@ class Pinput extends StatefulWidget {
   /// See [EditableText.autofocus]
   final bool autofocus;
 
+  /// Whether to use Native keyboard or custom one
+  /// when flag is set to false [Pinput] wont be focusable anymore
+  /// so you should set value of [Pinput]'s [TextEditingController] programmatically
+  final bool useNativeKeyboard;
+
   /// If true, paste button will appear on longPress event
   final bool toolbarEnabled;
+
+  /// Whether show cursor or not
+  /// Default cursor '|' or [cursor]
+  final bool showCursor;
+
+  /// Whether to enable cursor animation
+  final bool isCursorAnimationEnabled;
+
+  /// Whether to enable that the IME update personalized data such as typing history and user dictionary data.
+  //
+  // This flag only affects Android. On iOS, there is no equivalent flag.
+  //
+  // Defaults to false. Cannot be null.
+  final bool enableIMEPersonalizedLearning;
+
+  /// If [showCursor] true the focused field will show passed Widget
+  final Widget? cursor;
 
   /// The appearance of the keyboard.
   /// This setting is only honored on iOS devices.
@@ -236,17 +281,33 @@ class Pinput extends StatefulWidget {
   /// See [EditableText.autofillHints]
   final Iterable<String>? autofillHints;
 
+  /// See [EditableText.enableSuggestions]
+  final bool enableSuggestions;
+
   /// See [EditableText.selectionControls]
   final TextSelectionControls? selectionControls;
 
   /// See [TextField.restorationId]
   final String? restorationId;
 
+  /// Fires when clipboard has text of Pinput's length
+  final ValueChanged<String>? onClipboardFound;
+
+  /// Use haptic feedback everytime user types on keyboard
+  /// See more details in [HapticFeedback]
+  final HapticFeedbackType hapticFeedbackType;
+
   /// See [EditableText.onAppPrivateCommand]
   final AppPrivateCommandCallback? onAppPrivateCommand;
 
   /// See [EditableText.mouseCursor]
   final MouseCursor? mouseCursor;
+
+  /// If true [errorPinTheme] will be applied and [errorText] will be displayed under the Pinput
+  final bool forceErrorState;
+
+  /// If true, the error will also be dispalyed in the focused state. Otherwise the error is not displayed in the focused state.
+  final bool showErrorWhenFocused;
 
   /// Text displayed under the Pinput if Pinput is invalid
   final String? errorText;
@@ -268,6 +329,9 @@ class Pinput extends StatefulWidget {
   /// then it will attempt to make itself visible by scrolling a surrounding [Scrollable], if one is present.
   /// This value controls how far from the edges of a [Scrollable] the TextField will be positioned after the scroll.
   final EdgeInsets scrollPadding;
+
+  /// Optional parameter for Android SMS User Consent API.
+  final String? senderPhoneNumber;
 
   /// {@macro flutter.widgets.EditableText.contextMenuBuilder}
   ///
@@ -297,4 +361,369 @@ class Pinput extends StatefulWidget {
 
   @override
   State<Pinput> createState() => _PinputState();
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(
+      DiagnosticsProperty<PinTheme>(
+        'defaultPinTheme',
+        defaultPinTheme,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinTheme>(
+        'focusedPinTheme',
+        focusedPinTheme,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinTheme>(
+        'submittedPinTheme',
+        submittedPinTheme,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinTheme>(
+        'followingPinTheme',
+        followingPinTheme,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinTheme>(
+        'disabledPinTheme',
+        disabledPinTheme,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinTheme>(
+        'errorPinTheme',
+        errorPinTheme,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<TextEditingController>(
+        'controller',
+        controller,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<FocusNode>(
+        'focusNode',
+        focusNode,
+        defaultValue: null,
+      ),
+    );
+    properties
+        .add(DiagnosticsProperty<bool>('enabled', enabled, defaultValue: true));
+    properties.add(
+      DiagnosticsProperty<bool>(
+        'closeKeyboardWhenCompleted',
+        closeKeyboardWhenCompleted,
+        defaultValue: true,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<TextInputType>(
+        'keyboardType',
+        keyboardType,
+        defaultValue: TextInputType.number,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<int>(
+        'length',
+        length,
+        defaultValue: PinputConstants._defaultLength,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<ValueChanged<String>?>(
+        'onCompleted',
+        onCompleted,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<ValueChanged<String>?>(
+        'onChanged',
+        onChanged,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<ValueChanged<String>?>(
+        'onClipboardFound',
+        onClipboardFound,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<VoidCallback?>('onTap', onTap, defaultValue: null),
+    );
+    properties.add(
+      DiagnosticsProperty<VoidCallback?>(
+        'onLongPress',
+        onLongPress,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Widget?>(
+        'preFilledWidget',
+        preFilledWidget,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Widget?>('cursor', cursor, defaultValue: null),
+    );
+    properties.add(
+      DiagnosticsProperty<JustIndexedWidgetBuilder?>(
+        'separatorBuilder',
+        separatorBuilder,
+        defaultValue: PinputConstants._defaultSeparator,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinItemWidgetBuilder?>(
+        'pinItemBuilder',
+        pinItemBuilder,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Widget?>(
+        'obscuringWidget',
+        obscuringWidget,
+        defaultValue: null,
+      ),
+    );
+
+    properties.add(
+      DiagnosticsProperty<MainAxisAlignment>(
+        'mainAxisAlignment',
+        mainAxisAlignment,
+        defaultValue: MainAxisAlignment.center,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<AlignmentGeometry>(
+        'pinContentAlignment',
+        pinContentAlignment,
+        defaultValue: Alignment.center,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Curve>(
+        'animationCurve',
+        animationCurve,
+        defaultValue: Curves.easeIn,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Duration>(
+        'animationDuration',
+        animationDuration,
+        defaultValue: PinputConstants._animationDuration,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinAnimationType>(
+        'pinAnimationType',
+        pinAnimationType,
+        defaultValue: PinAnimationType.scale,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Offset?>(
+        'slideTransitionBeginOffset',
+        slideTransitionBeginOffset,
+        defaultValue: null,
+      ),
+    );
+    properties
+        .add(DiagnosticsProperty<bool>('enabled', enabled, defaultValue: true));
+    properties.add(
+      DiagnosticsProperty<bool>('readOnly', readOnly, defaultValue: false),
+    );
+    properties.add(
+      DiagnosticsProperty<bool>(
+        'obscureText',
+        obscureText,
+        defaultValue: false,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<bool>('autofocus', autofocus, defaultValue: false),
+    );
+    properties.add(
+      DiagnosticsProperty<bool>(
+        'useNativeKeyboard',
+        useNativeKeyboard,
+        defaultValue: false,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<bool>(
+        'toolbarEnabled',
+        toolbarEnabled,
+        defaultValue: true,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<bool>(
+        'showCursor',
+        showCursor,
+        defaultValue: true,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<String>(
+        'obscuringCharacter',
+        obscuringCharacter,
+        defaultValue: '•',
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<bool>(
+        'obscureText',
+        obscureText,
+        defaultValue: false,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<bool>(
+        'enableSuggestions',
+        enableSuggestions,
+        defaultValue: true,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<List<TextInputFormatter>>(
+        'inputFormatters',
+        inputFormatters,
+        defaultValue: const <TextInputFormatter>[],
+      ),
+    );
+    properties.add(
+      EnumProperty<TextInputAction>(
+        'textInputAction',
+        textInputAction,
+        defaultValue: TextInputAction.done,
+      ),
+    );
+    properties.add(
+      EnumProperty<TextCapitalization>(
+        'textCapitalization',
+        textCapitalization,
+        defaultValue: TextCapitalization.none,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Brightness>(
+        'keyboardAppearance',
+        keyboardAppearance,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<TextInputType>(
+        'keyboardType',
+        keyboardType,
+        defaultValue: TextInputType.number,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<Iterable<String>?>(
+        'autofillHints',
+        autofillHints,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<TextSelectionControls?>(
+        'selectionControls',
+        selectionControls,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<String?>(
+        'restorationId',
+        restorationId,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<AppPrivateCommandCallback?>(
+        'onAppPrivateCommand',
+        onAppPrivateCommand,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<MouseCursor?>(
+        'mouseCursor',
+        mouseCursor,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<TextStyle?>(
+        'errorTextStyle',
+        errorTextStyle,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinputErrorBuilder?>(
+        'errorBuilder',
+        errorBuilder,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<FormFieldValidator<String>?>(
+        'validator',
+        validator,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<PinputAutovalidateMode>(
+        'pinputAutovalidateMode',
+        pinputAutovalidateMode,
+        defaultValue: PinputAutovalidateMode.onSubmit,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<HapticFeedbackType>(
+        'hapticFeedbackType',
+        hapticFeedbackType,
+        defaultValue: HapticFeedbackType.disabled,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<String?>(
+        'senderPhoneNumber',
+        senderPhoneNumber,
+        defaultValue: null,
+      ),
+    );
+    properties.add(
+      DiagnosticsProperty<EditableTextContextMenuBuilder?>(
+        'contextMenuBuilder',
+        contextMenuBuilder,
+        defaultValue: _defaultContextMenuBuilder,
+      ),
+    );
+  }
 }
