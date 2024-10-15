@@ -329,9 +329,12 @@ class _PinputState extends State<Pinput>
                 child: _gestureDetectorBuilder.buildGestureDetector(
                   behavior: HitTestBehavior.translucent,
                   child: Stack(
-                    alignment: Alignment.topCenter,
+                    alignment: Alignment.center,
                     children: [
-                      _buildEditable(textSelectionControls, field),
+                      // the editable need to be the full size, otherwise the focus is not correct when getting the renderbox from the focus
+                      Positioned.fill(
+                        child: _buildEditable(textSelectionControls, field),
+                      ),
                       _buildFields(),
                     ],
                   ),
@@ -362,7 +365,7 @@ class _PinputState extends State<Pinput>
         child: EditableText(
           key: editableTextKey,
           maxLines: 1,
-          style: widget.defaultPinTheme.textStyle,
+          style: PinputConstants._hiddenTextStyle,
           onChanged: (value) {
             field.didChange(value);
             _maybeUseHaptic(widget.hapticFeedbackType);
