@@ -309,7 +309,7 @@ class _PinputState extends State<Pinput>
       enabled: isEnabled,
       validator: _validator,
       initialValue: _effectiveController.text,
-      builder: (FormFieldState<String> field) {
+      builder: (field) {
         return MouseRegion(
           cursor: _effectiveMouseCursor,
           onEnter: (PointerEnterEvent event) => _handleHover(true),
@@ -362,7 +362,7 @@ class _PinputState extends State<Pinput>
         child: EditableText(
           key: editableTextKey,
           maxLines: 1,
-          style: PinputConstants._hiddenTextStyle,
+          style: widget.defaultPinTheme.textStyle,
           onChanged: (value) {
             field.didChange(value);
             _maybeUseHaptic(widget.hapticFeedbackType);

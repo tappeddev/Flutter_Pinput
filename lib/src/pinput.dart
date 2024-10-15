@@ -47,7 +47,7 @@ class Pinput extends StatefulWidget {
   /// Creates a PinPut widget
   const Pinput({
     this.length = PinputConstants._defaultLength,
-    this.defaultPinTheme,
+    required this.defaultPinTheme,
     this.focusedPinTheme,
     this.submittedPinTheme,
     this.followingPinTheme,
@@ -117,7 +117,7 @@ class Pinput extends StatefulWidget {
         super(key: key);
 
   /// Theme of the pin in default state
-  final PinTheme? defaultPinTheme;
+  final PinTheme defaultPinTheme;
 
   /// Theme of the pin in focused state
   final PinTheme? focusedPinTheme;

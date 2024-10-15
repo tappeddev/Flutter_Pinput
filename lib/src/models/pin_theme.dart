@@ -11,7 +11,7 @@ class PinTheme {
 
   /// The style to use for PinPut
   /// If null, defaults to the `subhead` text style from the current [Theme].
-  final TextStyle? textStyle;
+  final TextStyle textStyle;
 
   /// Empty space to surround the [Pinput] field container.
   final EdgeInsetsGeometry? margin;
@@ -53,7 +53,7 @@ class PinTheme {
     this.height,
     this.margin,
     this.padding,
-    this.textStyle,
+    required this.textStyle,
     this.decoration,
     this.constraints,
   });
