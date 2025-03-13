@@ -17,6 +17,10 @@ part 'widgets/widgets.dart';
 
 part 'models/pin_theme.dart';
 
+part 'models/models.dart';
+
+part 'models/sms_retriever.dart';
+
 part 'utils/extensions.dart';
 
 part 'widgets/_pin_item.dart';
@@ -47,7 +51,8 @@ class Pinput extends StatefulWidget {
   /// Creates a PinPut widget
   const Pinput({
     this.length = PinputConstants._defaultLength,
-    required this.defaultPinTheme,
+    this.smsRetriever,
+    this.defaultPinTheme,
     this.focusedPinTheme,
     this.submittedPinTheme,
     this.followingPinTheme,
@@ -58,12 +63,11 @@ class Pinput extends StatefulWidget {
     this.onSubmitted,
     this.onTap,
     this.onLongPress,
+    this.onTapOutside,
     this.controller,
     this.focusNode,
     this.preFilledWidget,
     this.separatorBuilder,
-    this.pinItemBuilder,
-    this.senderPhoneNumber,
     this.mainAxisAlignment = MainAxisAlignment.center,
     this.crossAxisAlignment = CrossAxisAlignment.start,
     this.pinContentAlignment = Alignment.center,
@@ -90,7 +94,9 @@ class Pinput extends StatefulWidget {
     this.keyboardAppearance,
     this.inputFormatters = const [],
     this.textInputAction,
-    this.autofillHints,
+    this.autofillHints = const [
+      AutofillHints.oneTimeCode,
+    ],
     this.obscuringCharacter = '•',
     this.obscuringWidget,
     this.selectionControls,
@@ -106,7 +112,6 @@ class Pinput extends StatefulWidget {
     this.pinputAutovalidateMode = PinputAutovalidateMode.onSubmit,
     this.scrollPadding = const EdgeInsets.all(20),
     this.contextMenuBuilder = _defaultContextMenuBuilder,
-    this.onTapOutside,
     Key? key,
   })  : assert(obscuringCharacter.length == 1),
         assert(length > 0),
@@ -114,6 +119,81 @@ class Pinput extends StatefulWidget {
           textInputAction != TextInputAction.newline,
           'Pinput is not multiline',
         ),
+        _builder = null,
+        super(key: key);
+
+  /// Creates a PinPut widget with custom pin item builder
+  /// This gives you full control over the pin item widget
+  Pinput.builder({
+    required PinItemWidgetBuilder builder,
+    this.smsRetriever,
+    this.length = PinputConstants._defaultLength,
+    this.onChanged,
+    this.onCompleted,
+    this.onSubmitted,
+    this.onTap,
+    this.onLongPress,
+    this.onTapOutside,
+    this.controller,
+    this.focusNode,
+    this.separatorBuilder,
+    this.mainAxisAlignment = MainAxisAlignment.center,
+    this.crossAxisAlignment = CrossAxisAlignment.start,
+    this.enabled = true,
+    this.readOnly = false,
+    this.useNativeKeyboard = true,
+    this.toolbarEnabled = true,
+    this.autofocus = false,
+    this.enableIMEPersonalizedLearning = false,
+    this.enableSuggestions = true,
+    this.hapticFeedbackType = HapticFeedbackType.disabled,
+    this.closeKeyboardWhenCompleted = true,
+    this.keyboardType = TextInputType.number,
+    this.textCapitalization = TextCapitalization.none,
+    this.keyboardAppearance,
+    this.inputFormatters = const [],
+    this.textInputAction,
+    this.autofillHints,
+    this.selectionControls,
+    this.restorationId,
+    this.onClipboardFound,
+    this.onAppPrivateCommand,
+    this.mouseCursor,
+    this.forceErrorState = false,
+    this.validator,
+    this.pinputAutovalidateMode = PinputAutovalidateMode.onSubmit,
+    this.scrollPadding = const EdgeInsets.all(20),
+    this.contextMenuBuilder = _defaultContextMenuBuilder,
+    Key? key,
+  })  : assert(length > 0),
+        assert(
+          textInputAction != TextInputAction.newline,
+          'Pinput is not multiline',
+        ),
+        _builder = _PinItemBuilder(
+          itemBuilder: builder,
+        ),
+        defaultPinTheme = null,
+        focusedPinTheme = null,
+        submittedPinTheme = null,
+        followingPinTheme = null,
+        disabledPinTheme = null,
+        errorPinTheme = null,
+        preFilledWidget = null,
+        pinContentAlignment = Alignment.center,
+        animationCurve = Curves.easeIn,
+        animationDuration = PinputConstants._animationDuration,
+        pinAnimationType = PinAnimationType.scale,
+        obscureText = false,
+        showCursor = false,
+        isCursorAnimationEnabled = false,
+        slideTransitionBeginOffset = null,
+        cursor = null,
+        obscuringCharacter = '•',
+        obscuringWidget = null,
+        errorText = null,
+        errorBuilder = null,
+        errorTextStyle = null,
         super(key: key);
 
   /// Theme of the pin in default state
@@ -139,6 +219,11 @@ class Pinput extends StatefulWidget {
 
   /// Displayed fields count. PIN code length.
   final int length;
+
+  /// By default Android autofill is Disabled, you can enable it by passing [smsRetriever]
+  /// SmsRetriever exposes methods to listen for incoming SMS and extract code from it
+  /// Recommended package to get sms code on Android is smart_auth https://pub.dev/packages/smart_auth
+  final SmsRetriever? smsRetriever;
 
   /// Fires when user completes pin input
   final ValueChanged<String>? onCompleted;
@@ -189,7 +274,7 @@ class Pinput extends StatefulWidget {
 
   /// Builds a [Pinput] item
   /// If null the default _PinItem will be used
-  final PinItemWidgetBuilder? pinItemBuilder;
+  final _PinItemBuilder? _builder;
 
   /// Defines how [Pinput] fields are being placed inside [Row]
   final MainAxisAlignment mainAxisAlignment;
@@ -330,9 +415,6 @@ class Pinput extends StatefulWidget {
   /// This value controls how far from the edges of a [Scrollable] the TextField will be positioned after the scroll.
   final EdgeInsets scrollPadding;
 
-  /// Optional parameter for Android SMS User Consent API.
-  final String? senderPhoneNumber;
-
   /// {@macro flutter.widgets.EditableText.contextMenuBuilder}
   ///
   /// If not provided, will build a default menu based on the platform.
@@ -347,7 +429,7 @@ class Pinput extends StatefulWidget {
   /// notification. If this region is part of a group
   /// then it's possible that the event may be outside of this immediate region,
   /// although it will be within the region of one of the group members.
-  /// This is useful if you want to unfocus the [Pinput] when user taps outside of it
+  /// This is useful if you want to un-focus the [Pinput] when user taps outside of it
   final TapRegionCallback? onTapOutside;
 
   static Widget _defaultContextMenuBuilder(
@@ -493,9 +575,9 @@ class Pinput extends StatefulWidget {
       ),
     );
     properties.add(
-      DiagnosticsProperty<PinItemWidgetBuilder?>(
-        'pinItemBuilder',
-        pinItemBuilder,
+      DiagnosticsProperty<_PinItemBuilder>(
+        '_builder',
+        _builder,
         defaultValue: null,
       ),
     );
@@ -709,13 +791,6 @@ class Pinput extends StatefulWidget {
         'hapticFeedbackType',
         hapticFeedbackType,
         defaultValue: HapticFeedbackType.disabled,
-      ),
-    );
-    properties.add(
-      DiagnosticsProperty<String?>(
-        'senderPhoneNumber',
-        senderPhoneNumber,
-        defaultValue: null,
       ),
     );
     properties.add(

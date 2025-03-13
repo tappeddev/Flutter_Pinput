@@ -33,6 +33,7 @@ class _PinputState extends State<Pinput>
   FocusNode? _focusNode;
   bool _isHovering = false;
   String? _validatorErrorText;
+  SmsRetriever? _smsRetriever;
 
   String? get _errorText => widget.errorText ?? _validatorErrorText;
 
@@ -86,6 +87,25 @@ class _PinputState extends State<Pinput>
     _maybeCheckClipboard();
     // https://github.com/Tkko/Flutter_Pinput/issues/89
     _ambiguate(WidgetsBinding.instance)!.addObserver(this);
+  }
+
+  /// Android Autofill
+  void _maybeInitSmartAuth() async {
+    if (_smsRetriever == null && widget.smsRetriever != null) {
+      _smsRetriever = widget.smsRetriever!;
+      _listenForSmsCode();
+    }
+  }
+
+  void _listenForSmsCode() async {
+    final res = await _smsRetriever!.getSmsCode();
+    if (res != null && res.length == widget.length) {
+      _effectiveController.setText(res);
+    }
+    // Listen for multiple sms codes
+    if (_smsRetriever!.listenForMultipleSms) {
+      _listenForSmsCode();
+    }
   }
 
   void _handleTextEditingControllerChanges() {
@@ -172,6 +192,7 @@ class _PinputState extends State<Pinput>
     widget.controller?.removeListener(_handleTextEditingControllerChanges);
     _focusNode?.dispose();
     _controller?.dispose();
+    _smsRetriever?.dispose();
     // https://github.com/Tkko/Flutter_Pinput/issues/89
     _ambiguate(WidgetsBinding.instance)!.removeObserver(this);
     super.dispose();
@@ -322,6 +343,7 @@ class _PinputState extends State<Pinput>
                 builder: (_, Widget? child) => Semantics(
                   maxValueLength: widget.length,
                   currentValueLength: _currentLength,
+                  enabled: isEnabled,
                   onTap: widget.readOnly ? null : _semanticsOnTap,
                   onDidGainAccessibilityFocus: handleDidGainAccessibilityFocus,
                   child: child,
@@ -418,16 +440,25 @@ class _PinputState extends State<Pinput>
     );
   }
 
-  MouseCursor get _effectiveMouseCursor =>
-      MaterialStateProperty.resolveAs<MouseCursor>(
-        widget.mouseCursor ?? MaterialStateMouseCursor.textable,
-        <MaterialState>{
-          if (!isEnabled) MaterialState.disabled,
-          if (_isHovering) MaterialState.hovered,
-          if (effectiveFocusNode.hasFocus) MaterialState.focused,
-          if (hasError) MaterialState.error,
-        },
-      );
+  // TODO: Use WidgetStateProperty instead.
+  MouseCursor get _effectiveMouseCursor {
+    // ignore: deprecated_member_use
+    return MaterialStateProperty.resolveAs<MouseCursor>(
+      // ignore: deprecated_member_use
+      widget.mouseCursor ?? MaterialStateMouseCursor.textable,
+      // ignore: deprecated_member_use
+      <MaterialState>{
+        // ignore: deprecated_member_use
+        if (!isEnabled) MaterialState.disabled,
+        // ignore: deprecated_member_use
+        if (_isHovering) MaterialState.hovered,
+        // ignore: deprecated_member_use
+        if (effectiveFocusNode.hasFocus) MaterialState.focused,
+        // ignore: deprecated_member_use
+        if (hasError) MaterialState.error,
+      },
+    );
+  }
 
   void _semanticsOnTap() {
     if (!_effectiveController.selection.isValid) {
@@ -437,14 +468,44 @@ class _PinputState extends State<Pinput>
     _requestKeyboard();
   }
 
+  PinItemStateType _getState(int index) {
+    if (!isEnabled) {
+      return PinItemStateType.disabled;
+    }
+
+    if (showErrorState) {
+      return PinItemStateType.error;
+    }
+
+    if (hasFocus && index == selectedIndex.clamp(0, widget.length - 1)) {
+      return PinItemStateType.focused;
+    }
+
+    if (index < selectedIndex) {
+      return PinItemStateType.submitted;
+    }
+
+    return PinItemStateType.following;
+  }
+
   Widget _buildFields() {
     Widget onlyFields() {
       return _SeparatedRaw(
         separatorBuilder: widget.separatorBuilder,
         mainAxisAlignment: widget.mainAxisAlignment,
         children: Iterable<int>.generate(widget.length).map<Widget>((index) {
-          return _PinItem(
-              state: this, index: index, builder: widget.pinItemBuilder);
+          if (widget._builder != null) {
+            return widget._builder!.itemBuilder.call(
+              context,
+              PinItemState(
+                value: pin.length > index ? pin[index] : '',
+                index: index,
+                type: _getState(index),
+              ),
+            );
+          }
+
+          return _PinItem(state: this, index: index);
         }).toList(),
       );
     }
@@ -527,7 +588,6 @@ class _PinputState extends State<Pinput>
             uniqueIdentifier: autofillId,
             autofillHints: autofillHints,
             currentEditingValue: _effectiveController.value,
-            hintText: 'One Time Code',
           )
         : AutofillConfiguration.disabled;
 
